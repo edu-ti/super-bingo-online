@@ -140,7 +140,7 @@ const App: React.FC = () => {
       const initialSettings = {
         format: BingoFormat.B75,
         maxCardsPerPlayer: 4,
-        winConditions: [WinType.LINE, WinType.FULL_HOUSE],
+        winConditions: [WinType.FULL_HOUSE],
         autoMark: true,
         ballInterval: 0
       };
