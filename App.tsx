@@ -58,6 +58,7 @@ const App: React.FC = () => {
         setGameState(prev => {
           // Check for new winners to show confetti
           if (data.winners.length > (prev?.winners.length || 0)) {
+            console.log("New winners received from server! Triggering Confetti.");
             setShowConfetti(true);
             // Modal needs manual dismissal now
           }
@@ -253,11 +254,17 @@ const App: React.FC = () => {
 
     // Calculate Winners Locally for the Host and update everyone
     const newWinners: GameState['winners'] = [...gameState.winners];
+    console.log("Checking for winners among", gameState.players.length, "players");
+
     const updatedPlayers = gameState.players.map(player => {
       const updatedCards = player.cards.map(card => {
         const wins = validateWin(card, newDrawn, gameState.settings.winConditions);
         const isNewWinner = wins.length > 0;
         const almost = checkAlmostBingo(card, newDrawn);
+
+        if (isNewWinner) {
+          console.log("Winner DETECTED!", player.username, card.id, wins);
+        }
 
         if (isNewWinner && !card.isWinner) {
           wins.forEach(w => {
@@ -276,6 +283,10 @@ const App: React.FC = () => {
       });
       return { ...player, cards: updatedCards };
     });
+
+    if (newWinners.length > gameState.winners.length) {
+      console.log("Updating game with new winners:", newWinners);
+    }
 
     await updateGame(gameState.code, {
       drawnNumbers: newDrawn,
