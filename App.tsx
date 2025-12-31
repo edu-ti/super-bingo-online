@@ -88,6 +88,24 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, [gameState?.code]); // Re-subscribe only if code changes (which shouldn't happen often)
 
+  // --- Persistence ---
+  useEffect(() => {
+    const savedPlayer = localStorage.getItem('bingo_player');
+    if (savedPlayer) {
+      try {
+        setCurrentPlayer(JSON.parse(savedPlayer));
+      } catch (e) {
+        localStorage.removeItem('bingo_player');
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (currentPlayer) {
+      localStorage.setItem('bingo_player', JSON.stringify(currentPlayer));
+    }
+  }, [currentPlayer]);
+
   // --- Handlers ---
 
   const handleCreateGame = async () => {
@@ -96,8 +114,10 @@ const App: React.FC = () => {
     setIsLoading(true);
     try {
       const code = generateRandomCode();
+      const hostId = currentPlayer?.id || 'host-' + Math.random().toString(36).substr(2, 9);
+
       const host: Player = {
-        id: 'host-' + Math.random().toString(36).substr(2, 9),
+        id: hostId,
         username: inputName,
         isHost: true,
         cards: []
@@ -113,7 +133,6 @@ const App: React.FC = () => {
 
       await createGame(code, host, initialSettings);
 
-      // Manually set initial state to trigger subscription in useEffect
       setGameState({
         code,
         hostId: host.id,
@@ -141,8 +160,10 @@ const App: React.FC = () => {
     setIsLoading(true);
     try {
       const code = inputCode.toUpperCase();
+      const playerId = currentPlayer?.id || 'player-' + Math.random().toString(36).substr(2, 9);
+
       const player: Player = {
-        id: 'player-' + Math.random().toString(36).substr(2, 9),
+        id: playerId,
         username: inputName,
         isHost: false,
         cards: []
@@ -150,8 +171,15 @@ const App: React.FC = () => {
 
       await joinGame(code, player);
 
-      // We don't have the full game state yet, but we set the code to trigger subscription
-      setGameState({ code } as any);
+      // FIX: Initialize with empty arrays to prevent render crashes
+      setGameState({
+        code,
+        players: [],
+        winners: [],
+        drawnNumbers: [],
+        settings: { format: '75', maxCardsPerPlayer: 4 }
+      } as any);
+
       setCurrentPlayer(player);
       setView('lobby');
     } catch (err: any) {
@@ -359,6 +387,7 @@ const App: React.FC = () => {
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
           {/* Settings Column */}
           <div className="lg:col-span-1 space-y-6">
             <section className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 space-y-6">
@@ -408,7 +437,7 @@ const App: React.FC = () => {
             {isHost && (
               <button
                 onClick={handleStartGame}
-                disabled={gameState.players.length === 0}
+                disabled={(gameState.players?.length || 0) === 0}
                 className="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Play size={20} fill="currentColor" />
@@ -450,10 +479,10 @@ const App: React.FC = () => {
             <section className="bg-slate-800 text-white rounded-3xl p-6 shadow-xl space-y-4">
               <div className="flex items-center gap-2">
                 <Users size={20} className="text-indigo-400" />
-                <h3 className="font-bold">Jogadores Conectados ({gameState.players.length})</h3>
+                <h3 className="font-bold">Jogadores Conectados ({gameState.players?.length || 0})</h3>
               </div>
               <div className="flex flex-wrap gap-3">
-                {gameState.players.map(p => (
+                {(gameState.players || []).map(p => (
                   <div key={p.id} className="bg-white/10 px-4 py-2 rounded-full text-sm font-bold flex items-center gap-2">
                     {p.isHost && <Crown size={14} className="text-yellow-400" />}
                     {p.username}
