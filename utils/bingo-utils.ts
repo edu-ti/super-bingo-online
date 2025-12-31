@@ -44,39 +44,35 @@ export function generateCard(format: BingoFormat): BingoCardData {
 
 export function validateWin(card: BingoCardData, drawn: number[], winConditions: WinType[]): WinType[] {
   const hits: WinType[] = [];
-  const { format, numbers } = card;
+  const { numbers } = card;
 
-  const isHit = (r: number, c: number) => {
-    const val = numbers[r][c];
-    return val === null || drawn.includes(val);
-  };
+  // Helper to check if a value is hit
+  const isHit = (val: number | null) => val === null || drawn.includes(val);
 
-  if (format === BingoFormat.B75) {
-    // 75 balls logic remains the same (Line, Column, Diagonal, Corners, Full House)
-    for (let r = 0; r < 5; r++) {
-      if ([0, 1, 2, 3, 4].every(c => isHit(r, c))) hits.push(WinType.LINE);
-    }
-    for (let c = 0; c < 5; c++) {
-      if ([0, 1, 2, 3, 4].every(r => isHit(r, c))) hits.push(WinType.COLUMN);
-    }
-    if ([0, 1, 2, 3, 4].every(i => isHit(i, i))) hits.push(WinType.DIAGONAL);
-    if ([0, 1, 2, 3, 4].every(i => isHit(i, 4 - i))) hits.push(WinType.DIAGONAL);
-    if (isHit(0, 0) && isHit(0, 4) && isHit(4, 0) && isHit(4, 4)) hits.push(WinType.CORNERS);
+  // Check FULL HOUSE (Cartela Cheia)
+  const allNumbers = numbers.flat().filter(n => n !== null) as number[];
+  const isFullHouse = allNumbers.every(n => drawn.includes(n));
 
-    const allCellsHit = numbers.every((row, rIdx) => row.every((_, cIdx) => isHit(rIdx, cIdx)));
-    if (allCellsHit) hits.push(WinType.FULL_HOUSE);
-
-  } else {
-    // 90 balls logic: User requested "ganhador precisa ter acertado todos número da cartela"
-    // This means only FULL HOUSE counts for 90 balls.
-    const allNums = numbers.flat().filter(n => n !== null) as number[];
-    const allHit = allNums.every(n => drawn.includes(n));
-
-    if (allHit) {
-      hits.push(WinType.FULL_HOUSE);
-    }
+  if (isFullHouse) {
+    hits.push(WinType.FULL_HOUSE);
   }
 
+  // Check Lines, Columns, Diagonals (Legacy support for B75 or if enabled)
+  if (numbers.length === 5) { // 5x5 grid
+    // Rows
+    for (let r = 0; r < 5; r++) {
+      if (numbers[r].every(val => isHit(val))) hits.push(WinType.LINE);
+    }
+    // Cols
+    for (let c = 0; c < 5; c++) {
+      if ([0, 1, 2, 3, 4].every(r => isHit(numbers[r][c]))) hits.push(WinType.COLUMN);
+    }
+    // Diagonals
+    if ([0, 1, 2, 3, 4].every(i => isHit(numbers[i][i]))) hits.push(WinType.DIAGONAL);
+    if ([0, 1, 2, 3, 4].every(i => isHit(numbers[i][4 - i]))) hits.push(WinType.DIAGONAL);
+  }
+
+  // Filter based on game settings
   return [...new Set(hits)].filter(h => winConditions.includes(h));
 }
 

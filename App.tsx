@@ -59,7 +59,7 @@ const App: React.FC = () => {
           // Check for new winners to show confetti
           if (data.winners.length > (prev?.winners.length || 0)) {
             setShowConfetti(true);
-            setTimeout(() => setShowConfetti(false), 5000);
+            // Modal needs manual dismissal now
           }
           return data;
         });
