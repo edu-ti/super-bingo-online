@@ -51,8 +51,10 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!gameState?.code) return;
 
+    console.log("Subscribing to game:", gameState.code);
     const unsubscribe = subscribeToGame(gameState.code, (data) => {
       if (data) {
+        console.log("Game Update Received", data.players?.length, "players");
         setGameState(prev => {
           // Check for new winners to show confetti
           if (data.winners.length > (prev?.winners.length || 0)) {
@@ -61,14 +63,6 @@ const App: React.FC = () => {
           }
           return data;
         });
-
-        // Update current player from the server list to keep cards in sync
-        if (currentPlayer) {
-          const me = data.players.find(p => p.id === currentPlayer.id);
-          if (me) {
-            setCurrentPlayer(me);
-          }
-        }
 
         // Auto-switch view based on status
         if (data.status === GameStatus.PLAYING && view === 'lobby') {
@@ -86,7 +80,21 @@ const App: React.FC = () => {
     });
 
     return () => unsubscribe();
-  }, [gameState?.code]); // Re-subscribe only if code changes (which shouldn't happen often)
+  }, [gameState?.code]); // Re-subscribe only if code changes
+
+  // Sync Current Player with Game State (Fixes Stale Closure)
+  useEffect(() => {
+    if (gameState && currentPlayer && gameState.players) {
+      const remoteMe = gameState.players.find(p => p.id === currentPlayer.id);
+      if (remoteMe) {
+        // Only update if data actually changed to avoid loop
+        if (JSON.stringify(remoteMe.cards) !== JSON.stringify(currentPlayer.cards)) {
+          console.log("Syncing player cards from server");
+          setCurrentPlayer(prev => ({ ...remoteMe }));
+        }
+      }
+    }
+  }, [gameState, currentPlayer?.id]);
 
   // --- Persistence ---
   useEffect(() => {
