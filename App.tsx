@@ -600,6 +600,53 @@ const App: React.FC = () => {
           </section>
         </div>
 
+        {/* WINNER OVERLAY MODAL */}
+        {showConfetti && gameState.winners.length > 0 && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+            <div className="bg-white rounded-3xl p-8 max-w-lg w-full text-center shadow-2xl transform animate-bounce-in space-y-6 relative overflow-hidden">
+              {/* Decorative background gradients */}
+              <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-yellow-400 via-orange-500 to-red-500" />
+              <div className="absolute -top-10 -left-10 w-32 h-32 bg-yellow-300 rounded-full blur-3xl opacity-30" />
+              <div className="absolute -bottom-10 -right-10 w-32 h-32 bg-indigo-300 rounded-full blur-3xl opacity-30" />
+
+              <div className="relative z-10 flex flex-col items-center gap-4">
+                <div className="bg-yellow-100 p-4 rounded-full text-yellow-600 mb-2 animate-pulse">
+                  <Trophy size={64} strokeWidth={2} />
+                </div>
+
+                <div className="space-y-2">
+                  <h2 className="text-4xl font-black text-slate-900 font-bungee tracking-wider animate-slide-up">
+                    TEMOS VENCEDOR!
+                  </h2>
+                  <p className="text-slate-500 font-medium">Parabéns pela vitória incrível!</p>
+                </div>
+
+                <div className="bg-slate-50 rounded-2xl p-6 w-full border border-slate-100 shadow-inner">
+                  {gameState.winners.slice(-1).map((w, i) => (
+                    <div key={i} className="space-y-3">
+                      <Crown size={32} className="text-yellow-500 mx-auto" />
+                      <div className="text-3xl font-bold text-indigo-600 font-bungee">
+                        {w.username}
+                      </div>
+                      <div className="inline-block bg-indigo-100 text-indigo-700 font-bold px-4 py-1 rounded-full text-sm uppercase tracking-widest">
+                        {WIN_TYPE_LABELS[w.winType]}
+                      </div>
+                      <p className="text-xs text-slate-400 font-mono">Cartela ID: {w.cardId}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  onClick={() => setShowConfetti(false)}
+                  className="mt-4 bg-slate-900 text-white font-bold py-3 px-8 rounded-xl shadow-lg hover:bg-slate-800 transition-transform hover:scale-105 active:scale-95 uppercase tracking-wide text-sm"
+                >
+                  Continuar Jogando
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Right Side: Player Cards & Winners */}
         <div className="lg:col-span-8 space-y-8">
           {gameState.winners.length > 0 && (
