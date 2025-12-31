@@ -87,10 +87,16 @@ const App: React.FC = () => {
     if (gameState && currentPlayer && gameState.players) {
       const remoteMe = gameState.players.find(p => p.id === currentPlayer.id);
       if (remoteMe) {
-        // Only update if data actually changed to avoid loop
+        // Only update if data actually changed
         if (JSON.stringify(remoteMe.cards) !== JSON.stringify(currentPlayer.cards)) {
-          console.log("Syncing player cards from server");
-          setCurrentPlayer(prev => ({ ...remoteMe }));
+          // Prevent reverting optimistic updates (unless server explicitly has more or different cards that imply a reset/sync)
+          // If we have more cards locally, it's likely an optimistic update waiting to be persisted.
+          // However, if the server has *different* cards but same count, we should sync.
+          // The safest heuristic here is: if server has >= cards, sync.
+          if (remoteMe.cards.length >= currentPlayer.cards.length) {
+            console.log("Syncing player cards from server");
+            setCurrentPlayer(prev => ({ ...remoteMe }));
+          }
         }
       }
     }
