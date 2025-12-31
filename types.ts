@@ -29,8 +29,8 @@ export interface Player {
 
 export interface BingoCardData {
   id: string;
-  numbers: (number | null)[][];
-  marked: boolean[][];
+  numbers: (number | null)[];  // Flat array for Firestore compatibility
+  marked: boolean[];           // Flat array
   format: BingoFormat;
   isWinner: boolean;
   winTypes: WinType[];

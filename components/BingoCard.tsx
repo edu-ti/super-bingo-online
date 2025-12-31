@@ -20,22 +20,23 @@ const BingoCard: React.FC<BingoCardProps> = ({ card, drawnNumbers, compact }) =>
         ))}
       </div>
       <div className="grid grid-cols-5 p-2 gap-1 bg-slate-100">
-        {card.numbers.map((row, rIdx) => (
-          row.map((num, cIdx) => {
-            const hit = isHit(num);
-            return (
-              <div
-                key={`${rIdx}-${cIdx}`}
-                className={`
+        {card.numbers.map((num, idx) => {
+          const hit = isHit(num);
+          // rIdx and cIdx are derived from idx
+          // const rIdx = Math.floor(idx / 5);
+          // const cIdx = idx % 5;
+          return (
+            <div
+              key={idx}
+              className={`
                   aspect-square flex items-center justify-center rounded-md font-bold text-sm md:text-base transition-all duration-500
                   ${num === null ? 'bg-yellow-100 text-yellow-700' : hit ? 'bg-indigo-600 text-white animate-bounce-in' : 'bg-white text-slate-700 shadow-sm'}
                 `}
-              >
-                {num === null ? '★' : num}
-              </div>
-            );
-          })
-        ))}
+            >
+              {num === null ? '★' : num}
+            </div>
+          );
+        })}
       </div>
       {card.almostBingo && !card.isWinner && (
         <div className="bg-orange-500 text-white text-center text-[10px] font-bold py-0.5 uppercase tracking-wider animate-pulse">
