@@ -1,128 +1,206 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { 
-  BingoFormat, 
-  GameStatus, 
-  WinType, 
-  GameState, 
-  Player, 
-  BingoCardData 
+import {
+  BingoFormat,
+  GameStatus,
+  WinType,
+  GameState,
+  Player,
+  BingoCardData
 } from './types';
-import { 
-  generateRandomCode, 
-  generateCard, 
-  validateWin, 
-  checkAlmostBingo 
+import {
+  generateRandomCode,
+  generateCard,
+  validateWin,
+  checkAlmostBingo
 } from './utils/bingo-utils';
-import { 
-  WIN_TYPE_LABELS, 
-  FORMAT_DESCRIPTIONS 
+import {
+  createGame,
+  joinGame,
+  subscribeToGame,
+  updateGame,
+  updatePlayerCards
+} from './utils/game-service';
+import {
+  WIN_TYPE_LABELS
 } from './constants';
 import BingoCard from './components/BingoCard';
 import BallDisplay from './components/BallDisplay';
-import { Trophy, Users, Settings, Plus, Play, Pause, RotateCcw, Layout, User, Crown, Search, History } from 'lucide-react';
+import { Trophy, Users, Settings, Plus, Play, Pause, RotateCcw, Layout, User, Crown, Search, History, Loader2 } from 'lucide-react';
 
 const App: React.FC = () => {
-  // Game State Simulation
-  const [gameState, setGameState] = useState<GameState>({
-    code: '',
-    status: GameStatus.LOBBY,
-    settings: {
-      format: BingoFormat.B75,
-      maxCardsPerPlayer: 4,
-      winConditions: [WinType.LINE, WinType.FULL_HOUSE],
-      autoMark: true,
-      ballInterval: 0
-    },
-    drawnNumbers: [],
-    players: [],
-    lastDrawn: null,
-    winners: []
-  });
+  // Remote Game State
+  const [gameState, setGameState] = useState<GameState | null>(null);
 
+  // Local Player State
   const [currentPlayer, setCurrentPlayer] = useState<Player | null>(null);
   const [view, setView] = useState<'home' | 'lobby' | 'game'>('home');
-  const [isHost, setIsHost] = useState(false);
   const [inputCode, setInputCode] = useState('');
   const [inputName, setInputName] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Local state for UI
+  // Local UI State
   const [showConfetti, setShowConfetti] = useState(false);
+
+  // Derived State
+  const isHost = useMemo(() => {
+    return gameState && currentPlayer && gameState.hostId === currentPlayer.id;
+  }, [gameState, currentPlayer]);
+
+  // Sync Effect
+  useEffect(() => {
+    if (!gameState?.code) return;
+
+    const unsubscribe = subscribeToGame(gameState.code, (data) => {
+      if (data) {
+        setGameState(prev => {
+          // Check for new winners to show confetti
+          if (data.winners.length > (prev?.winners.length || 0)) {
+            setShowConfetti(true);
+            setTimeout(() => setShowConfetti(false), 5000);
+          }
+          return data;
+        });
+
+        // Update current player from the server list to keep cards in sync
+        if (currentPlayer) {
+          const me = data.players.find(p => p.id === currentPlayer.id);
+          if (me) {
+            setCurrentPlayer(me);
+          }
+        }
+
+        // Auto-switch view based on status
+        if (data.status === GameStatus.PLAYING && view === 'lobby') {
+          setView('game');
+        } else if (data.status === GameStatus.LOBBY && view === 'game') {
+          // Game reset?
+          setView('lobby');
+        }
+      } else {
+        // Game deleted or invalid
+        alert('Este jogo foi encerrado ou não existe mais.');
+        setView('home');
+        setGameState(null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [gameState?.code]); // Re-subscribe only if code changes (which shouldn't happen often)
 
   // --- Handlers ---
 
-  const handleCreateGame = () => {
-    const code = generateRandomCode();
-    const host: Player = {
-      id: 'host-1',
-      username: inputName || 'Host',
-      isHost: true,
-      cards: []
-    };
-    
-    setGameState(prev => ({
-      ...prev,
-      code,
-      players: [host],
-      status: GameStatus.LOBBY
-    }));
-    setCurrentPlayer(host);
-    setIsHost(true);
-    setView('lobby');
+  const handleCreateGame = async () => {
+    if (!inputName) return alert('Digite seu seu nome/apelido');
+
+    setIsLoading(true);
+    try {
+      const code = generateRandomCode();
+      const host: Player = {
+        id: 'host-' + Math.random().toString(36).substr(2, 9),
+        username: inputName,
+        isHost: true,
+        cards: []
+      };
+
+      const initialSettings = {
+        format: BingoFormat.B75,
+        maxCardsPerPlayer: 4,
+        winConditions: [WinType.LINE, WinType.FULL_HOUSE],
+        autoMark: true,
+        ballInterval: 0
+      };
+
+      await createGame(code, host, initialSettings);
+
+      // Manually set initial state to trigger subscription in useEffect
+      setGameState({
+        code,
+        hostId: host.id,
+        status: GameStatus.LOBBY,
+        settings: initialSettings,
+        drawnNumbers: [],
+        lastDrawn: null,
+        players: [host],
+        winners: []
+      });
+      setCurrentPlayer(host);
+      setView('lobby');
+    } catch (err: any) {
+      console.error(err);
+      alert('Erro ao criar jogo: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleJoinGame = () => {
+  const handleJoinGame = async () => {
     if (!inputCode) return alert('Digite o código do jogo');
-    
-    const player: Player = {
-      id: Math.random().toString(36).substr(2, 9),
-      username: inputName || `Jogador ${Math.floor(Math.random() * 1000)}`,
-      isHost: false,
-      cards: []
-    };
+    if (!inputName) return alert('Digite seu nome/apelido');
 
-    setGameState(prev => ({
-      ...prev,
-      code: inputCode.toUpperCase(),
-      players: [...prev.players, player],
-    }));
-    setCurrentPlayer(player);
-    setIsHost(false);
-    setView('lobby');
+    setIsLoading(true);
+    try {
+      const code = inputCode.toUpperCase();
+      const player: Player = {
+        id: 'player-' + Math.random().toString(36).substr(2, 9),
+        username: inputName,
+        isHost: false,
+        cards: []
+      };
+
+      await joinGame(code, player);
+
+      // We don't have the full game state yet, but we set the code to trigger subscription
+      setGameState({ code } as any);
+      setCurrentPlayer(player);
+      setView('lobby');
+    } catch (err: any) {
+      console.error(err);
+      alert('Erro ao entrar no jogo: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const addCard = () => {
-    if (!currentPlayer) return;
+  const addCard = async () => {
+    if (!currentPlayer || !gameState) return;
     if (currentPlayer.cards.length >= gameState.settings.maxCardsPerPlayer) {
       alert(`Máximo de ${gameState.settings.maxCardsPerPlayer} cartelas atingido!`);
       return;
     }
 
     const newCard = generateCard(gameState.settings.format);
-    const updatedPlayer = {
-      ...currentPlayer,
-      cards: [...currentPlayer.cards, newCard]
-    };
+    const updatedCards = [...currentPlayer.cards, newCard];
 
-    setCurrentPlayer(updatedPlayer);
-    setGameState(prev => ({
-      ...prev,
-      players: prev.players.map(p => p.id === updatedPlayer.id ? updatedPlayer : p)
-    }));
+    // Optimistic update
+    setCurrentPlayer(prev => prev ? ({ ...prev, cards: updatedCards }) : null);
+
+    try {
+      await updatePlayerCards(gameState.code, currentPlayer.id, updatedCards);
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao salvar cartela. Tente novamente.");
+      // Rollback would be good here
+    }
   };
 
-  const handleStartGame = () => {
-    setGameState(prev => ({ ...prev, status: GameStatus.PLAYING }));
-    setView('game');
+  const handleUpdateSettings = async (newSettings: Partial<GameState['settings']>) => {
+    if (!gameState) return;
+    await updateGame(gameState.code, { settings: { ...gameState.settings, ...newSettings } });
+  }
+
+  const handleStartGame = async () => {
+    if (!gameState) return;
+    await updateGame(gameState.code, { status: GameStatus.PLAYING });
   };
 
-  const drawNumber = useCallback(() => {
-    if (gameState.status !== GameStatus.PLAYING) return;
-    
+  const drawNumber = useCallback(async () => {
+    if (!gameState || gameState.status !== GameStatus.PLAYING) return;
+
     const max = gameState.settings.format === BingoFormat.B75 ? 75 : 90;
     const available = Array.from({ length: max }, (_, i) => i + 1)
       .filter(n => !gameState.drawnNumbers.includes(n));
-    
+
     if (available.length === 0) {
       alert('Todos os números foram sorteados!');
       return;
@@ -130,8 +208,8 @@ const App: React.FC = () => {
 
     const next = available[Math.floor(Math.random() * available.length)];
     const newDrawn = [...gameState.drawnNumbers, next];
-    
-    // Automatic Win Detection
+
+    // Calculate Winners Locally for the Host and update everyone
     const newWinners: GameState['winners'] = [...gameState.winners];
     const updatedPlayers = gameState.players.map(player => {
       const updatedCards = player.cards.map(card => {
@@ -157,40 +235,41 @@ const App: React.FC = () => {
       return { ...player, cards: updatedCards };
     });
 
-    if (newWinners.length > gameState.winners.length) {
-      setShowConfetti(true);
-      setTimeout(() => setShowConfetti(false), 5000);
-    }
-
-    setGameState(prev => ({
-      ...prev,
+    await updateGame(gameState.code, {
       drawnNumbers: newDrawn,
       lastDrawn: next,
       players: updatedPlayers,
       winners: newWinners
+    });
+
+  }, [gameState]);
+
+  const resetGame = async () => {
+    if (!gameState) return;
+    if (!confirm('Deseja realmente resetar o jogo?')) return;
+
+    const resetPlayers = gameState.players.map(p => ({
+      ...p,
+      cards: p.cards.map(c => ({ ...c, isWinner: false, winTypes: [], almostBingo: false }))
     }));
 
-    if (currentPlayer) {
-      const me = updatedPlayers.find(p => p.id === currentPlayer.id);
-      if (me) setCurrentPlayer(me);
-    }
-  }, [gameState, currentPlayer]);
-
-  const resetGame = () => {
-    if (!confirm('Deseja realmente resetar o jogo?')) return;
-    setGameState(prev => ({
-      ...prev,
+    await updateGame(gameState.code, {
       drawnNumbers: [],
       lastDrawn: null,
       winners: [],
       status: GameStatus.LOBBY,
-      players: prev.players.map(p => ({
-        ...p,
-        cards: p.cards.map(c => ({...c, isWinner: false, winTypes: [], almostBingo: false}))
-      }))
-    }));
-    setView('lobby');
+      players: resetPlayers
+    });
   };
+
+  // --- Render Helpers ---
+  if (!gameState && view !== 'home') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-indigo-50">
+        <Loader2 className="animate-spin text-indigo-600" size={48} />
+      </div>
+    )
+  }
 
   // --- Views ---
 
@@ -200,31 +279,33 @@ const App: React.FC = () => {
         <div className="max-w-md w-full text-center space-y-8">
           <div className="space-y-2">
             <h1 className="text-6xl font-bungee tracking-tighter drop-shadow-md">BINGO!</h1>
-            <p className="text-indigo-100 font-medium">O sistema de bingo mais completo da web.</p>
+            <p className="text-indigo-100 font-medium">Multiplayer Online</p>
           </div>
 
           <div className="bg-white/10 backdrop-blur-md rounded-2xl p-8 border border-white/20 shadow-xl space-y-6">
             <div className="space-y-4">
               <div className="text-left space-y-1">
                 <label className="text-xs font-bold uppercase tracking-wider text-indigo-200">Seu Apelido</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={inputName}
                   onChange={(e) => setInputName(e.target.value)}
                   placeholder="Ex: BingoMaster"
+                  disabled={isLoading}
                   className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-400 transition-all placeholder:text-white/30"
                 />
               </div>
 
               <div className="grid grid-cols-1 gap-4">
-                <button 
+                <button
                   onClick={handleCreateGame}
-                  className="flex items-center justify-center gap-3 w-full bg-white text-indigo-700 font-bold py-4 rounded-xl shadow-lg hover:bg-indigo-50 transition-colors"
+                  disabled={isLoading}
+                  className="flex items-center justify-center gap-3 w-full bg-white text-indigo-700 font-bold py-4 rounded-xl shadow-lg hover:bg-indigo-50 transition-colors disabled:opacity-50"
                 >
-                  <Crown size={20} />
+                  {isLoading ? <Loader2 className="animate-spin" /> : <Crown size={20} />}
                   Criar Novo Jogo
                 </button>
-                
+
                 <div className="relative flex items-center gap-4 py-2">
                   <div className="flex-1 h-px bg-white/20"></div>
                   <span className="text-xs font-bold text-white/40">OU</span>
@@ -233,32 +314,33 @@ const App: React.FC = () => {
 
                 <div className="space-y-2">
                   <div className="flex gap-2">
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={inputCode}
                       onChange={(e) => setInputCode(e.target.value.toUpperCase())}
                       placeholder="CÓDIGO"
+                      disabled={isLoading}
                       className="flex-1 bg-white/10 border border-white/20 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-400 transition-all placeholder:text-white/30 font-bold text-center tracking-widest"
                     />
-                    <button 
+                    <button
                       onClick={handleJoinGame}
-                      className="bg-indigo-500 hover:bg-indigo-400 text-white font-bold px-6 rounded-xl shadow-lg transition-colors"
+                      disabled={isLoading}
+                      className="bg-indigo-500 hover:bg-indigo-400 text-white font-bold px-6 rounded-xl shadow-lg transition-colors disabled:opacity-50"
                     >
-                      Entrar
+                      {isLoading ? <Loader2 className="animate-spin" /> : "Entrar"}
                     </button>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-
-          <div className="text-indigo-200 text-xs font-medium">
-            Múltiplos formatos: 75 & 90 bolas | Sincronização em tempo real
-          </div>
         </div>
       </div>
     );
   }
+
+  // Force loading state if types mismatch or still loading
+  if (!gameState || !currentPlayer) return <div className="text-center p-10">Carregando...</div>;
 
   if (view === 'lobby') {
     return (
@@ -266,7 +348,9 @@ const App: React.FC = () => {
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div className="space-y-1">
             <h2 className="text-3xl font-bungee text-slate-800">Sala de Espera</h2>
-            <p className="text-slate-500 font-medium">Aguardando jogadores e preparando cartelas...</p>
+            <p className="text-slate-500 font-medium">
+              {isHost ? "Você é o Host! Configure o jogo." : "Aguardando o host iniciar..."}
+            </p>
           </div>
           <div className="bg-white px-6 py-3 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-4">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Código</span>
@@ -287,10 +371,10 @@ const App: React.FC = () => {
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-slate-400 uppercase">Formato</label>
-                    <select 
+                    <select
                       className="w-full p-3 rounded-xl bg-slate-100 border-none outline-none font-medium text-slate-700"
                       value={gameState.settings.format}
-                      onChange={(e) => setGameState(p => ({...p, settings: {...p.settings, format: e.target.value as BingoFormat}}))}
+                      onChange={(e) => handleUpdateSettings({ format: e.target.value as BingoFormat })}
                     >
                       <option value={BingoFormat.B75}>75 Bolas (5x5)</option>
                       <option value={BingoFormat.B90}>90 Bolas (3x9)</option>
@@ -298,12 +382,12 @@ const App: React.FC = () => {
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-slate-400 uppercase">Max Cartelas / Jogador</label>
-                    <input 
-                      type="number" 
+                    <input
+                      type="number"
                       min="1" max="10"
                       className="w-full p-3 rounded-xl bg-slate-100 border-none outline-none font-medium text-slate-700"
                       value={gameState.settings.maxCardsPerPlayer}
-                      onChange={(e) => setGameState(p => ({...p, settings: {...p.settings, maxCardsPerPlayer: parseInt(e.target.value) || 1}}))}
+                      onChange={(e) => handleUpdateSettings({ maxCardsPerPlayer: parseInt(e.target.value) || 1 })}
                     />
                   </div>
                 </div>
@@ -322,7 +406,7 @@ const App: React.FC = () => {
             </section>
 
             {isHost && (
-              <button 
+              <button
                 onClick={handleStartGame}
                 disabled={gameState.players.length === 0}
                 className="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -340,7 +424,7 @@ const App: React.FC = () => {
                 <Layout size={20} className="text-indigo-600" />
                 <h3 className="font-bold">Minhas Cartelas ({currentPlayer?.cards.length || 0})</h3>
               </div>
-              <button 
+              <button
                 onClick={addCard}
                 disabled={(currentPlayer?.cards.length || 0) >= gameState.settings.maxCardsPerPlayer}
                 className="flex items-center gap-2 text-indigo-600 font-bold text-sm bg-indigo-50 px-4 py-2 rounded-xl hover:bg-indigo-100 transition-all disabled:opacity-50"
@@ -404,7 +488,7 @@ const App: React.FC = () => {
               <span className="text-xl font-bungee text-slate-800 tracking-wider">{gameState.code}</span>
             </div>
             {isHost && (
-              <button 
+              <button
                 onClick={resetGame}
                 className="bg-red-50 text-red-600 p-2 rounded-xl hover:bg-red-100 transition-colors"
                 title="Resetar Jogo"
@@ -421,9 +505,9 @@ const App: React.FC = () => {
         <div className="lg:col-span-4 space-y-8">
           <div className="bg-white rounded-[2rem] p-8 shadow-xl shadow-slate-200 border border-slate-100 flex flex-col items-center space-y-6">
             <BallDisplay number={gameState.lastDrawn} format={gameState.settings.format} />
-            
+
             {isHost && (
-              <button 
+              <button
                 onClick={drawNumber}
                 className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bungee text-xl py-4 rounded-2xl shadow-lg shadow-indigo-200 transition-all flex items-center justify-center gap-3 transform active:scale-95"
               >
@@ -438,7 +522,7 @@ const App: React.FC = () => {
               </div>
               <div className="flex flex-wrap gap-2 justify-center">
                 {gameState.drawnNumbers.slice(-5).reverse().map((num, i) => (
-                  <div 
+                  <div
                     key={`${num}-${i}`}
                     className={`
                       w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm
@@ -459,7 +543,7 @@ const App: React.FC = () => {
             </div>
             <div className="grid grid-cols-10 gap-1 opacity-80">
               {Array.from({ length: gameState.settings.format === '75' ? 75 : 90 }, (_, i) => i + 1).map(num => (
-                <div 
+                <div
                   key={num}
                   className={`
                     aspect-square text-[9px] flex items-center justify-center rounded-sm font-bold transition-all
@@ -508,7 +592,7 @@ const App: React.FC = () => {
               <Layout size={20} className="text-indigo-600" />
               <h3 className="font-bold">Minhas Cartelas</h3>
             </div>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {currentPlayer?.cards.map((card) => (
                 <BingoCard key={card.id} card={card} drawnNumbers={gameState.drawnNumbers} />
@@ -522,8 +606,8 @@ const App: React.FC = () => {
       {showConfetti && (
         <div className="fixed inset-0 pointer-events-none z-50 overflow-hidden">
           {Array.from({ length: 50 }).map((_, i) => (
-            <div 
-              key={i} 
+            <div
+              key={i}
               className="absolute animate-bounce"
               style={{
                 left: `${Math.random() * 100}%`,
@@ -547,17 +631,17 @@ const App: React.FC = () => {
 
       {/* Quick Player Bar */}
       <footer className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 p-4 md:hidden flex justify-between items-center shadow-lg z-20">
-         <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-indigo-600">
-              <User size={20} />
-            </div>
-            <span className="font-bold text-slate-700">{currentPlayer?.username}</span>
-         </div>
-         <div className="flex gap-2">
-            <span className="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded-full font-bold">
-              {currentPlayer?.cards.length} Cards
-            </span>
-         </div>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-indigo-600">
+            <User size={20} />
+          </div>
+          <span className="font-bold text-slate-700">{currentPlayer?.username}</span>
+        </div>
+        <div className="flex gap-2">
+          <span className="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded-full font-bold">
+            {currentPlayer?.cards.length} Cards
+          </span>
+        </div>
       </footer>
     </div>
   );
