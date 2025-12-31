@@ -1,0 +1,8 @@
+{
+  "name": "Super Bingo Online",
+  "description": "A comprehensive real-time bingo system supporting 75 and 90 ball formats, multiple cards, automatic win detection, and professional host controls.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
